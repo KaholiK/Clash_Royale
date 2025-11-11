@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cr-elixir-cycle-overlay"
+version = "0.1.0"
+description = "Clash Royale elixir and card-cycle overlay using screen capture and computer vision"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Clash Royale Overlay Team"}
+]
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "PyQt6>=6.5.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
