@@ -1,0 +1,524 @@
+{
+  "project_name": "cr_elixir_cycle_overlay",
+  "schema_version": "1.0",
+
+  "meta": {
+    "last_verified": "2025-11-11",
+    "notes": [
+      "Mechanics are based on Clash Royale Wiki's Elixir and Card Evolution pages and official update notes as of late 2025.",
+      "Card list and elixir costs are aligned with DeckShop's card list 'By Elixir' section (121 cards, 39 evolutions, 8 champions).",
+      "Champion rework (no more 3-card cycle, champions stay in normal 4-card rotation, only last champion has ability) is based on Supercell October 2025 update notes and follow-up coverage.",
+      "This file is read-only knowledge for tooling (Copilot Agent, Copilot, etc). Runtime code should not try to edit it."
+    ]
+  },
+
+  "game_mechanics": {
+    "elixir": {
+      "starting_elixir": 5,
+      "max_elixir": 10,
+      "single_elixir": {
+        "phase_name": "Single",
+        "duration_seconds": 120,
+        "elixir_per_second_approx": 1.0,
+        "exact_seconds_per_elixir": 2.8
+      },
+      "double_elixir": {
+        "phase_name": "Double",
+        "starts_at_seconds": 120,
+        "elixir_multiplier": 2.0,
+        "elixir_per_second_approx": 2.0,
+        "exact_seconds_per_elixir": 1.4
+      },
+      "triple_elixir": {
+        "phase_name": "Triple",
+        "starts_in_standard_battle": "last minute of overtime only",
+        "elixir_multiplier": 3.0,
+        "elixir_per_second_approx": 3.0,
+        "exact_seconds_per_elixir": 0.9
+      },
+      "two_v_two_modifier": {
+        "description": "2v2 generates elixir ~30% slower than 1v1.",
+        "single_seconds_per_elixir": 3.6,
+        "double_seconds_per_elixir": 1.8,
+        "triple_seconds_per_elixir": 1.2
+      },
+      "elixir_leak": {
+        "description": "At 10 elixir you stop generating elixir until you spend some.",
+        "spectator_leak_counter": true
+      },
+      "elixir_collector": {
+        "card_name": "Elixir Collector",
+        "cost": 6,
+        "lifetime_elixir_generated": 8,
+        "net_profit_if_undamaged": 2,
+        "note_for_overlay": "Accurate elixir tracking would need to add +2 net elixir over the Collector lifetime for the owner and adjust for spell damage; first implementation can ignore this and accept some error."
+      },
+      "elixir_golem": {
+        "card_name": "Elixir Golem",
+        "cost": 3,
+        "elixir_given_to_opponent_total": 4,
+        "note_for_overlay": "Accurate tracking would need to detect all Elixir Golem death stages and add elixir to the OPPONENT. First version can ignore this or treat it as a fixed +4 to opponent when the last form dies."
+      }
+    },
+
+    "deck_and_cycle": {
+      "deck_size": 8,
+      "hand_size": 4,
+      "rotation_rules": [
+        "Battle starts with 4 cards in hand and 4 in deck.",
+        "When you play a card, it goes into a queue at the back of the deck.",
+        "After the usual draw delay, the top card of the deck is drawn so your hand returns to 4 cards.",
+        "The deck order is deterministic. If you know the starting order, you can predict future hands exactly.",
+        "Because you never see the opponent's initial order, you infer it from the sequence of plays."
+      ],
+      "basic_cycle_inference_algorithm": [
+        "Assign the opponent 8 unknowns at start: card_1 ... card_8.",
+        "Every time the opponent plays a card, append that card identity to a list in order of appearance.",
+        "When a new card appears that has not been seen yet, it must be one of the remaining unknowns.",
+        "Once all 8 distinct cards have been seen, the full deck contents are known.",
+        "Card order can be approximated using time between plays and knowledge that cards re-enter the deck after being played."
+      ],
+      "known_limitations": [
+        "You cannot see the exact internal deck order. You only know the multiset of 8 cards and the current hand/next card if you track the play sequence.",
+        "Mirror and Champions complicate the cycle because Mirror copies the last card and Champions can be replayed while they are still alive."
+      ]
+    },
+
+    "champions": {
+      "rework_summary": {
+        "three_card_cycle_removed": true,
+        "champions_in_normal_rotation": true,
+        "ability_binding": "Only the most recently placed Champion has an active ability button. A crown icon marks which one is active.",
+        "mirror_interaction": "Mirror now works on Champions. Mirrored champions also follow 'last played champion' ability rule.",
+        "deck_restriction": "Still only 1 Champion card per deck at build time.",
+        "board_restriction": "Multiple Champions can be on the board at once after the 2025 rework."
+      },
+      "overlay_implications": [
+        "Champions are treated exactly like other cards for cycle purposes: cost elixir, leave hand, re-enter deck after play.",
+        "You do NOT need to model 3-card cycle anymore.",
+        "Tracking elixir spent on Champion abilities would require separate CV for the ability button and is optional for v1."
+      ]
+    },
+
+    "card_evolutions": {
+      "general_rules": [
+        "Each evolution card has a 'cycles' value: how many plays of the non-evolved version are needed before the evolved version appears in hand.",
+        "If cycles = 2, then every 3rd play is evolved (play base, base, evolved, base, base, evolved, ...).",
+        "There is an evolution slot system in the UI. Only cards in active evolution slots can evolve in that match.",
+        "In hand, the evolution progress is shown by a purple diamond that fills with each cycle.",
+        "When an evolved card is deployed, it has a special deploy effect and purple light beam on the field."
+      ],
+      "indicator_notes": [
+        "The purple diamond appears above the card art in your own hand to show evolution progress.",
+        "On the battlefield, evolved troops have a purple visual effect as they deploy; this is the only visual hint the overlay can use to detect that a PLAYED copy is evolved.",
+        "Some evolution card renders do not show a diamond in the card art itself; rely on the in-match effects and your own dataset, not static marketing art."
+      ]
+    }
+  },
+
+  "cards": {
+    "cards_by_elixir": {
+      "1": [
+        "Skeletons",
+        "Electro Spirit",
+        "Fire Spirit",
+        "Ice Spirit",
+        "Heal Spirit"
+      ],
+      "2": [
+        "Goblins",
+        "Spear Goblins",
+        "Bomber",
+        "Bats",
+        "Zap",
+        "Giant Snowball",
+        "Berserker",
+        "Ice Golem",
+        "Suspicious Bush",
+        "Barbarian Barrel",
+        "Wall Breakers",
+        "Goblin Curse",
+        "Rage",
+        "The Log"
+      ],
+      "3": [
+        "Archers",
+        "Arrows",
+        "Knight",
+        "Minions",
+        "Cannon",
+        "Goblin Gang",
+        "Skeleton Barrel",
+        "Firecracker",
+        "Royal Delivery",
+        "Tombstone",
+        "Mega Minion",
+        "Dart Goblin",
+        "Earthquake",
+        "Elixir Golem",
+        "Goblin Barrel",
+        "Guards",
+        "Skeleton Army",
+        "Vines",
+        "Clone",
+        "Tornado",
+        "Void",
+        "Miner",
+        "Princess",
+        "Ice Wizard",
+        "Royal Ghost",
+        "Bandit",
+        "Fisherman",
+        "Little Prince"
+      ],
+      "4": [
+        "Skeleton Dragons",
+        "Mortar",
+        "Tesla",
+        "Fireball",
+        "Mini P.E.K.K.A",
+        "Musketeer",
+        "Goblin Cage",
+        "Goblin Hut",
+        "Valkyrie",
+        "Battle Ram",
+        "Bomb Tower",
+        "Flying Machine",
+        "Hog Rider",
+        "Battle Healer",
+        "Furnace",
+        "Zappies",
+        "Goblin Demolisher",
+        "Baby Dragon",
+        "Dark Prince",
+        "Freeze",
+        "Poison",
+        "Rune Giant",
+        "Hunter",
+        "Goblin Drill",
+        "Electro Wizard",
+        "Inferno Dragon",
+        "Phoenix",
+        "Magic Archer",
+        "Lumberjack",
+        "Night Witch",
+        "Mother Witch",
+        "Golden Knight",
+        "Skeleton King",
+        "Mighty Miner"
+      ],
+      "5": [
+        "Barbarians",
+        "Minion Horde",
+        "Rascals",
+        "Giant",
+        "Inferno Tower",
+        "Wizard",
+        "Royal Hogs",
+        "Witch",
+        "Balloon",
+        "Prince",
+        "Electro Dragon",
+        "Bowler",
+        "Executioner",
+        "Cannon Cart",
+        "Ram Rider",
+        "Graveyard",
+        "Goblin Machine",
+        "Archer Queen",
+        "Goblinstein",
+        "Monk"
+      ],
+      "6": [
+        "Royal Giant",
+        "Elite Barbarians",
+        "Rocket",
+        "Barbarian Hut",
+        "Elixir Collector",
+        "Giant Skeleton",
+        "Lightning",
+        "Goblin Giant",
+        "X-Bow",
+        "Sparky",
+        "Spirit Empress",
+        "Boss Bandit"
+      ],
+      "7": [
+        "Royal Recruits",
+        "P.E.K.K.A",
+        "Electro Giant",
+        "Mega Knight",
+        "Lava Hound"
+      ],
+      "8": [
+        "Golem"
+      ],
+      "9": [
+        "Three Musketeers"
+      ]
+    },
+
+    "variable_elixir_cards": {
+      "Mirror": {
+        "base_elixir": null,
+        "is_variable": true,
+        "rules": [
+          "Mirror repeats the last card played by that player.",
+          "Mirrored card cost = original card cost + 1, capped at 10 elixir.",
+          "For tracking: when Mirror is played, treat it as 'last_card_name + 1 elixir'.",
+          "Mirror itself occupies one of the 8 deck slots and rotates like other cards."
+        ]
+      }
+    },
+
+    "champions": {
+      "list": [
+        "Little Prince",
+        "Golden Knight",
+        "Skeleton King",
+        "Mighty Miner",
+        "Archer Queen",
+        "Goblinstein",
+        "Monk",
+        "Boss Bandit"
+      ],
+      "notes": [
+        "All Champions cost between 3 and 6 elixir to play.",
+        "Each has an ability that costs additional elixir (1-2).",
+        "First implementation of the overlay can ignore ability elixir. That will slightly undercount opponent spending when they activate abilities.",
+        "If ability tracking is added later, it should be a separate CV detector for the Champion ability button state and cost."
+      ]
+    },
+
+    "evolution_cycles": {
+      "Barbarians": 1,
+      "Royal Giant": 1,
+      "Firecracker": 2,
+      "Skeletons": 2,
+      "Mortar": 2,
+      "Knight": 2,
+      "Royal Recruits": 1,
+      "Bats": 2,
+      "Archers": 2,
+      "Ice Spirit": 2,
+      "Valkyrie": 2,
+      "Bomber": 2,
+      "Wall Breakers": 2,
+      "Tesla": 2,
+      "Zap": 2,
+      "Battle Ram": 2,
+      "Wizard": 1,
+      "Goblin Barrel": 2,
+      "Goblin Giant": 1,
+      "Goblin Drill": 2,
+      "Goblin Cage": 1,
+      "P.E.K.K.A": 1,
+      "Mega Knight": 1,
+      "Electro Dragon": 1,
+      "Musketeer": 2,
+      "Cannon": 2,
+      "Giant Snowball": 2,
+      "Dart Goblin": 2,
+      "Lumberjack": 2,
+      "Hunter": 2,
+      "Executioner": 1,
+      "Witch": 1,
+      "Inferno Dragon": 2,
+      "Skeleton Barrel": 2,
+      "Furnace": 2,
+      "Baby Dragon": 2,
+      "Skeleton Army": 2,
+      "Royal Ghost": 2,
+      "Royal Hogs": 2
+    }
+  },
+
+  "cv_guidelines": {
+    "overall_goal": "From a live Clash Royale window on Windows, detect when the opponent plays a card, identify which card it is, and flag whether it is an evolved version, so that the overlay can update opponent elixir and card cycle.",
+
+    "input_source": {
+      "expected_environment": [
+        "Game is running either in the official PC client or an Android emulator on Windows.",
+        "Resolution should be fixed for calibration, e.g. 1920x1080; all bounding boxes are defined for that resolution then scaled."
+      ],
+      "frame_acquisition": [
+        "Use screen capture of the window or a direct capture API (e.g. Win32 GDI, DXGI, or a library like mss).",
+        "Target frame rate 15–30 FPS is enough for detection."
+      ]
+    },
+
+    "regions_of_interest": {
+      "opponent_play_area": {
+        "description": "Rectangles above the river on the opponent's side where new troops spawn when the opponent plays a card.",
+        "usage": "Primary area to scan for new objects appearing between frames."
+      },
+      "your_hand_area": {
+        "description": "Bottom of the screen showing your 4 cards and elixir bar.",
+        "usage": [
+          "Overlay UI can sit just above this region.",
+          "Optional: use this region to calibrate elixir bar position if needed, but you do NOT read opponent's elixir directly from game (not visible)."
+        ]
+      },
+      "evolution_indicator": {
+        "description": "Purple light and effects around freshly deployed evolved cards.",
+        "usage": "Secondary classification signal. Helps tag an appearance as evolved vs base when training or inferring."
+      }
+    },
+
+    "card_detection_strategy": {
+      "approach": "Template-based or lightweight CNN classifier, trained on crops of cards as they appear on the battlefield immediately after deployment.",
+      "requirements": [
+        "Dataset must use IN-GAME battlefield visuals, not clean card art from collection screen.",
+        "You will need at least one good example of each card on the field, ideally multiple angles and positions.",
+        "For evolved cards, also capture frames where the evolution visual is clearly visible."
+      ],
+      "dataset_convention": {
+        "root_folder_placeholder": "<PATH-TO-DATASET-ROOT>",
+        "class_folder_structure_example": [
+          "<PATH-TO-DATASET-ROOT>/train/base/Skeletons/*.png",
+          "<PATH-TO-DATASET-ROOT>/train/evo/Skeletons/*.png",
+          "<PATH-TO-DATASET-ROOT>/train/base/Archer_Queen/*.png",
+          "<PATH-TO-DATASET-ROOT>/train/base/Barbarians/*.png"
+        ],
+        "single_image_placeholders_example": {
+          "hand_art_example": "<URL-to-Archers-card-art.png>",
+          "field_art_example": "<URL-to-Archers-on-field.png>",
+          "field_evo_art_example": "<URL-to-Archers-evo-on-field.png>",
+          "evo_diamond_example": "<URL-to-evo-purple-diamond-overlay.png>"
+        }
+      },
+      "candidate_models": [
+        "Classical: OpenCV template matching + multi-scale search per card (simpler but brittle to skin/theme changes).",
+        "ML: Lightweight CNN or MobileNet head trained to classify cropped tiles into 'background' + 121 card classes, plus a binary 'is_evolved' label.",
+        "Hybrid: Use motion detection to find new objects, then run classifier on the cropped region."
+      ],
+      "practical_simplifications": [
+        "For v1, you can pick a minimal subset of common meta cards to test the pipeline (e.g. Hog Rider, Fireball, Log, Skeletons, Knight, Archers) and extend later.",
+        "Initially ignore skins, tower skins, and challenge-specific visual modifiers; assume standard arena theme."
+      ]
+    }
+  },
+
+  "tracking_logic": {
+    "opponent_elixir_model": {
+      "state": {
+        "current_elixir": "float between 0 and 10, can be fractional.",
+        "last_update_timestamp": "monotonic time in seconds",
+        "phase": "single|double|triple",
+        "leak_cap": 10
+      },
+      "update_on_time": [
+        "On each frame, compute delta_t = now - last_update_timestamp.",
+        "Compute seconds_per_elixir from current phase.",
+        "Increase current_elixir by delta_t / seconds_per_elixir, but clamp to max_elixir.",
+        "Update last_update_timestamp."
+      ],
+      "update_on_card_play": [
+        "When a card is detected as played by opponent, look up its elixir cost from cards.cards_by_elixir or special Mirror rules.",
+        "Subtract that cost from current_elixir, clamp not to go below 0."
+      ],
+      "phase_transitions": [
+        "At t = 120s from battle start, switch phase to 'double'.",
+        "If standard ladder battle with 1 minute overtime and triple elixir, switch to 'triple' at the correct timestamp (usually 240s from start).",
+        "Overlay can offer a manual toggle in case special modes have different timers."
+      ],
+      "known_error_sources": [
+        "Elixir Collector, Elixir Golem, and Champion abilities will cause drift if not modeled.",
+        "Detection misses or false positives will desync elixir count.",
+        "The overlay must allow manual adjustment (e.g. +1/-1 buttons) to resync."
+      ]
+    },
+
+    "opponent_card_cycle_model": {
+      "state": {
+        "discovered_cards": "set of card names seen so far (max 8)",
+        "play_history": "ordered list of card plays with timestamps and 'evolved' flag",
+        "inferred_hand": "best guess at the four cards currently in opponent hand",
+        "inferred_next_card": "best guess at the next draw"
+      },
+      "update_on_card_play": [
+        "Append (card_name, is_evolved, timestamp) to play_history.",
+        "If card_name not in discovered_cards, add it.",
+        "If size of discovered_cards <= 8, update the unknown slots shown in UI.",
+        "Once 8 distinct cards are known, deck contents are fully known and UI should show real names instead of question marks."
+      ],
+      "hand_inference_approx": [
+        "Assume opponent hand always has 4 cards.",
+        "When a card is played, mark that card as 'just played', and approximate that a new unknown card enters at the back of the hand.",
+        "If all 8 cards are already known, the new card must be the one that has been absent longest from the hand and deck rotation.",
+        "This is an approximation; exact order is impossible to know, but the UI can show a 'likely hand' vs 'possible deck' separation."
+      ]
+    }
+  },
+
+  "overlay_ui": {
+    "goals": [
+      "Never block important in-game elements.",
+      "Show opponent elixir, discovered cards, and cycle status at a glance.",
+      "Clearly distinguish between 'certain' information and 'inferred/approximate'."
+    ],
+    "recommended_layout": {
+      "main_panel": [
+        "Docked at top center or top-left of the game window as a click-through transparent overlay.",
+        "Contains opponent elixir bar, numerical value, and timers for phase (single/double/triple)."
+      ],
+      "opponent_deck_panel": [
+        "Row of 8 slots for opponent cards.",
+        "Unknown slots displayed as '?', then replaced with real card icons once seen.",
+        "Use simple rectangles with card names to avoid needing card art initially."
+      ],
+      "hand_and_next_subpanel": [
+        "4 slots labeled 'Likely hand'.",
+        "1 slot labeled 'Likely next'.",
+        "Color or alpha used to show uncertainty (e.g. hand slot with 100% certainty vs 50%)."
+      ],
+      "controls": [
+        "Hotkey to toggle overlay on/off.",
+        "Buttons to manually adjust opponent elixir by +1 or -1.",
+        "Optional: calibration mode to drag the game window area so overlay can lock to it."
+      ]
+    }
+  },
+
+  "engineering": {
+    "recommended_stack": {
+      "language": "Python 3.x",
+      "cv_library": "OpenCV (cv2)",
+      "gui_library": "PyQt6 or PySide6 for transparent always-on-top window",
+      "packaging": "PyInstaller or Briefcase for building a Windows .exe",
+      "config": "This JSON file loaded at startup as read-only domain config"
+    },
+    "high_level_modules": [
+      "capture.py: captures frames from the game window at a target FPS.",
+      "detect.py: runs CV pipeline to detect new opponent card placements and classify card name + evolved flag.",
+      "elixir_tracker.py: contains ElixirTracker class implementing opponent_elixir_model.",
+      "cycle_tracker.py: contains CardCycleTracker implementing opponent_card_cycle_model.",
+      "overlay_ui.py: PyQt window that renders elixir bar, deck, and hand panels on top of the game.",
+      "config_loader.py: loads and validates this JSON knowledge file.",
+      "calibration.py: handles saving game-window position and scaling factors."
+    ],
+    "project_structure_example": {
+      "root": [
+        "README.md",
+        "LICENSE",
+        "pyproject.toml or requirements.txt",
+        "cr_overlay_knowledge.json  (this file)",
+        "src/",
+        "src/croverlay/__init__.py",
+        "src/croverlay/capture.py",
+        "src/croverlay/detect.py",
+        "src/croverlay/elixir_tracker.py",
+        "src/croverlay/cycle_tracker.py",
+        "src/croverlay/overlay_ui.py",
+        "src/croverlay/config_loader.py",
+        "src/croverlay/calibration.py",
+        "tests/"
+      ]
+    },
+    "non_goals_for_v1": [
+      "No direct game memory reading or injection. Only screen capture.",
+      "No automated card placement or botting. Overlay is informational only.",
+      "No attempt to perfectly model all elixir effects of Elixir Collector, Elixir Golem, and Champion abilities in v1."
+    ]
+  }
+}
