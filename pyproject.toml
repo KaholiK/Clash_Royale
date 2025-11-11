@@ -24,6 +24,10 @@ dev = [
     "black>=23.0.0",
     "flake8>=6.0.0"
 ]
+win-capture = [
+    "mss>=9.0.0",
+    "pywin32>=306"
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
